@@ -6,14 +6,19 @@ flowchart LR
     classDef aws fill:#FFF8E1,stroke:#FF8F00,color:#E65100
     classDef db fill:#ECEFF1,stroke:#455A64,color:#263238
     classDef dlq fill:#FFEBEE,stroke:#C62828,color:#B71C1C
+    classDef cb fill:#FFFDE7,stroke:#F9A825,stroke-width:3px,color:#5D4037
+    classDef fb fill:#FCE4EC,stroke:#AD1457,stroke-dasharray:4 3,color:#880E4F
 
     APP["📱 App mobile do cliente"]:::app
 
     subgraph SOL["Serviço de Solicitações · Java 21 + Spring"]
         direction TB
         API["API REST<br/>POST /solicitacoes"]:::svc
+        CB_KAFKA{{"🛡️ CB kafka-producer"}}:::cb
+        FB_KAFKA["Fallback:<br/>status PENDENTE_PUBLICACAO<br/>+ job de republicação"]:::fb
         CONS_DEC["Consumer<br/>DecisaoTomada"]:::svc
-        PUB_SNS["Publisher SNS"]:::svc
+        CB_SNS{{"🛡️ CB sns-publisher"}}:::cb
+        FB_SNS["CB aberto:<br/>pausa o consumer Kafka<br/>(sem commit do offset)"]:::fb
     end
     DB_SOL[("BD Solicitações<br/>solicitacao + status<br/>chave_idempotencia UNIQUE")]:::db
 
@@ -42,7 +47,10 @@ flowchart LR
     subgraph NOT["Serviço de Notificações · Java 21 + Spring"]
         direction TB
         L_EMAIL["Listener e-mail"]:::svc
+        CB_EMAIL{{"🛡️ CB email-provider"}}:::cb
         L_PUSH["Listener push"]:::svc
+        CB_PUSH{{"🛡️ CB push-provider"}}:::cb
+        FB_NOT["CB aberto:<br/>para o listener do canal<br/>+ ChangeMessageVisibility"]:::fb
     end
     DB_NOT[("BD Notificações<br/>envio + chave_idempotencia UNIQUE")]:::db
 
@@ -53,25 +61,34 @@ flowchart LR
     APP -- "1 · Solicita produto de crédito" --> API
     API -- "1a · Grava solicitação (PENDENTE)" --> DB_SOL
     API -. "1b · 202 Accepted: 'em breve você receberá<br/>a resposta por e-mail e no app'" .-> APP
-    API -- "1c · Publica SolicitacaoCriada" --> T_SOL
+    API --> CB_KAFKA
+    CB_KAFKA -- "1c · FECHADO: publica SolicitacaoCriada" --> T_SOL
+    CB_KAFKA -. "ABERTO" .-> FB_KAFKA
+    FB_KAFKA -. "republica quando o CB fechar" .-> T_SOL
 
     T_SOL -- "2 · Consome" --> MOTOR
     MOTOR -- "2a · Consulta" --> ELEG
     MOTOR -- "2b · Publica DecisaoTomada" --> T_DEC
 
     T_DEC -- "3 · Consome" --> CONS_DEC
-    CONS_DEC -- "3a · Atualiza status<br/>(APROVADA/NEGADA)" --> DB_SOL
-    CONS_DEC --> PUB_SNS
-    PUB_SNS -- "3b · Publica decisão" --> SNS
+    CONS_DEC -- "3a · Chave de idempotência + status<br/>(APROVADA/NEGADA), mesma transação" --> DB_SOL
+    CONS_DEC --> CB_SNS
+    CB_SNS -- "3b · FECHADO: publica decisão" --> SNS
+    CB_SNS -. "ABERTO" .-> FB_SNS
+    FB_SNS -. "retoma em MEIO-ABERTO" .-> CONS_DEC
     SNS -- "fan-out" --> SQS_EMAIL
     SNS -- "fan-out" --> SQS_PUSH
 
     SQS_EMAIL -- "4 · Consome" --> L_EMAIL
     SQS_PUSH -- "4 · Consome" --> L_PUSH
-    L_EMAIL -- "Registra envio" --> DB_NOT
-    L_PUSH -- "Registra envio" --> DB_NOT
-    L_EMAIL -- "4a · Envia e-mail" --> EMAIL
-    L_PUSH -- "4b · Envia push" --> PUSH
+    L_EMAIL -- "Chave de idempotência" --> DB_NOT
+    L_PUSH -- "Chave de idempotência" --> DB_NOT
+    L_EMAIL --> CB_EMAIL
+    L_PUSH --> CB_PUSH
+    CB_EMAIL -- "4a · FECHADO: envia e-mail" --> EMAIL
+    CB_PUSH -- "4b · FECHADO: envia push" --> PUSH
+    CB_EMAIL -. "ABERTO" .-> FB_NOT
+    CB_PUSH -. "ABERTO" .-> FB_NOT
     PUSH -. "Notificação" .-> APP
 
     %% Falhas Kafka
