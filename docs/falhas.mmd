@@ -1,0 +1,48 @@
+flowchart TB
+    classDef ok fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef warn fill:#FFF8E1,stroke:#FF8F00,color:#E65100
+    classDef err fill:#FFEBEE,stroke:#C62828,color:#B71C1C
+    classDef db fill:#ECEFF1,stroke:#455A64,color:#263238
+
+    subgraph K["Kafka: tópico de retry + dead letter topic"]
+        direction TB
+        K1[["Tópico principal<br/>solicitacao-criada / decisao-tomada"]]:::ok
+        K2{"Processou?"}
+        K3["Commit do offset"]:::ok
+        K4[["Tópico de retry<br/>*-retry"]]:::warn
+        K5{"Tentativas < 3?"}
+        K6[["Dead letter topic<br/>*-dlt"]]:::err
+        K1 --> K2
+        K2 -- "sim" --> K3
+        K2 -- "não" --> K4
+        K4 --> K5
+        K5 -- "sim: reprocessa" --> K2
+        K5 -- "não" --> K6
+    end
+
+    subgraph S["SQS: visibility timeout + DLQ"]
+        direction TB
+        S1[/"fila-email / fila-push"/]:::ok
+        S2["ReceiveMessage<br/>(mensagem fica invisível)"]
+        S3{"Processou?"}
+        S4["DeleteMessage"]:::ok
+        S5["Não apaga a mensagem<br/>visibility timeout expira<br/>e ela volta a ficar visível"]:::warn
+        S6{"ApproximateReceiveCount<br/>< 3?"}
+        S7[/"DLQ<br/>fila-email-dlq / fila-push-dlq"/]:::err
+        S1 --> S2 --> S3
+        S3 -- "sim" --> S4
+        S3 -- "não" --> S5 --> S6
+        S6 -- "sim" --> S1
+        S6 -- "não (redrive policy)" --> S7
+    end
+
+    subgraph I["Idempotência em cada nova tentativa"]
+        direction TB
+        I1["Mensagem recebida<br/>(original ou retry)"]
+        I2[("INSERT chave_idempotencia<br/>constraint UNIQUE")]:::db
+        I3["Executa efeito colateral<br/>(atualiza status / publica / envia)"]:::ok
+        I4["Descarta duplicata<br/>e confirma a mensagem"]:::warn
+        I1 --> I2
+        I2 -- "inseriu" --> I3
+        I2 -- "violação UNIQUE" --> I4
+    end

@@ -1,0 +1,53 @@
+sequenceDiagram
+    autonumber
+    actor C as Cliente
+    participant APP as App mobile
+    participant SOL as Serviço de Solicitações
+    participant DBS as BD Solicitações
+    participant K as Kafka
+    participant M as Motor de Crédito
+    participant SNS as SNS
+    participant QE as SQS fila-email
+    participant QP as SQS fila-push
+    participant NOT as Serviço de Notificações
+    participant DBN as BD Notificações
+    participant EP as Provedor de e-mail / push
+
+    C->>APP: Solicita produto de crédito
+    APP->>SOL: POST /solicitacoes
+    SOL->>DBS: INSERT solicitação (status = PENDENTE)
+    SOL->>K: publica SolicitacaoCriada
+    SOL-->>APP: 202 Accepted + mensagem padrão
+    APP-->>C: "Em breve você receberá a resposta por e-mail e no app"
+
+    K->>M: consome SolicitacaoCriada
+    M->>M: consulta fatores de elegibilidade e decide
+    M->>K: publica DecisaoTomada
+
+    K->>SOL: consome DecisaoTomada
+    SOL->>DBS: INSERT chave de idempotência (UNIQUE)
+    alt chave nova
+        SOL->>DBS: UPDATE status (APROVADA / NEGADA)
+        SOL->>SNS: publica decisão
+    else chave duplicada
+        SOL->>SOL: ignora (já processado)
+    end
+
+    par fan-out SNS
+        SNS->>QE: cópia da decisão
+    and
+        SNS->>QP: cópia da decisão
+    end
+
+    par Canal e-mail
+        QE->>NOT: recebe mensagem
+        NOT->>DBN: INSERT chave de idempotência (UNIQUE)
+        NOT->>EP: envia e-mail
+        NOT->>QE: DeleteMessage
+    and Canal push
+        QP->>NOT: recebe mensagem
+        NOT->>DBN: INSERT chave de idempotência (UNIQUE)
+        NOT->>EP: envia notificação push
+        NOT->>QP: DeleteMessage
+    end
+    EP-->>C: e-mail + notificação no app
