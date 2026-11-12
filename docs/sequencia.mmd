@@ -1,3 +1,4 @@
+%%{init: {"theme": "dark"}}%%
 sequenceDiagram
     autonumber
     actor C as Cliente
@@ -34,7 +35,7 @@ sequenceDiagram
     M->>K: publica DecisaoTomada
 
     K->>SOL: consome DecisaoTomada
-    rect rgb(236, 239, 241)
+    rect rgb(38, 50, 56)
         Note over SOL,DBS: transação única
         SOL->>DBS: INSERT chave de idempotência (UNIQUE)
         alt chave duplicada
@@ -57,7 +58,7 @@ sequenceDiagram
     SNS->>Q: fan-out (uma cópia por fila)
 
     Q->>NOT: recebe mensagem (e-mail e push em paralelo)
-    rect rgb(236, 239, 241)
+    rect rgb(38, 50, 56)
         Note over NOT,DBN: transação única
         NOT->>DBN: INSERT chave de idempotência (UNIQUE)
         alt chave duplicada

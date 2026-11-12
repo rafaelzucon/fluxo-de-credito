@@ -142,16 +142,17 @@ docker run --rm -v "$PWD":/ws -w /ws maven:3.10-eclipse-temurin-21 mvn -B test
 <details><summary>Fonte Mermaid</summary>
 
 ```mermaid
+%%{init: {"theme": "dark"}}%%
 flowchart LR
-    classDef app fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
-    classDef svc fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
-    classDef ext fill:#FFF3E0,stroke:#EF6C00,color:#E65100
-    classDef kafka fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
-    classDef aws fill:#FFF8E1,stroke:#FF8F00,color:#E65100
-    classDef db fill:#ECEFF1,stroke:#455A64,color:#263238
-    classDef dlq fill:#FFEBEE,stroke:#C62828,color:#B71C1C
-    classDef cb fill:#FFFDE7,stroke:#F9A825,stroke-width:3px,color:#5D4037
-    classDef fb fill:#FCE4EC,stroke:#AD1457,stroke-dasharray:4 3,color:#880E4F
+    classDef app fill:#0D2B45,stroke:#64B5F6,color:#E3F2FD
+    classDef svc fill:#0F3320,stroke:#66BB6A,color:#E8F5E9
+    classDef ext fill:#3E2410,stroke:#FFA726,color:#FFF3E0
+    classDef kafka fill:#2A1236,stroke:#BA68C8,color:#F3E5F5
+    classDef aws fill:#3A2E0A,stroke:#FFB300,color:#FFF8E1
+    classDef db fill:#263238,stroke:#90A4AE,color:#ECEFF1
+    classDef dlq fill:#3B1214,stroke:#EF5350,color:#FFEBEE
+    classDef cb fill:#3A3410,stroke:#FDD835,stroke-width:3px,color:#FFFDE7
+    classDef fb fill:#3A1024,stroke:#F06292,stroke-dasharray:4 3,color:#FCE4EC
 
     APP["📱 App mobile do cliente"]:::app
 
@@ -256,6 +257,7 @@ flowchart LR
 <details><summary>Fonte Mermaid</summary>
 
 ```mermaid
+%%{init: {"theme": "dark"}}%%
 sequenceDiagram
     autonumber
     actor C as Cliente
@@ -292,7 +294,7 @@ sequenceDiagram
     M->>K: publica DecisaoTomada
 
     K->>SOL: consome DecisaoTomada
-    rect rgb(236, 239, 241)
+    rect rgb(38, 50, 56)
         Note over SOL,DBS: transação única
         SOL->>DBS: INSERT chave de idempotência (UNIQUE)
         alt chave duplicada
@@ -315,7 +317,7 @@ sequenceDiagram
     SNS->>Q: fan-out (uma cópia por fila)
 
     Q->>NOT: recebe mensagem (e-mail e push em paralelo)
-    rect rgb(236, 239, 241)
+    rect rgb(38, 50, 56)
         Note over NOT,DBN: transação única
         NOT->>DBN: INSERT chave de idempotência (UNIQUE)
         alt chave duplicada
@@ -345,12 +347,13 @@ sequenceDiagram
 <details><summary>Fonte Mermaid</summary>
 
 ```mermaid
+%%{init: {"theme": "dark"}}%%
 flowchart TB
-    classDef ok fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
-    classDef warn fill:#FFF8E1,stroke:#FF8F00,color:#E65100
-    classDef err fill:#FFEBEE,stroke:#C62828,color:#B71C1C
-    classDef db fill:#ECEFF1,stroke:#455A64,color:#263238
-    classDef cb fill:#FFFDE7,stroke:#F9A825,stroke-width:3px,color:#5D4037
+    classDef ok fill:#0F3320,stroke:#66BB6A,color:#E8F5E9
+    classDef warn fill:#3A2E0A,stroke:#FFB300,color:#FFF8E1
+    classDef err fill:#3B1214,stroke:#EF5350,color:#FFEBEE
+    classDef db fill:#263238,stroke:#90A4AE,color:#ECEFF1
+    classDef cb fill:#3A3410,stroke:#FDD835,stroke-width:3px,color:#FFFDE7
 
     subgraph K["Kafka: circuit breaker + retry + dead letter topic"]
         direction TB
@@ -419,13 +422,14 @@ flowchart TB
 <details><summary>Fonte Mermaid</summary>
 
 ```mermaid
+%%{init: {"theme": "dark"}}%%
 stateDiagram-v2
     direction LR
     [*] --> FECHADO
     FECHADO --> ABERTO: taxa de falha ≥ 50% ou<br/>chamadas lentas (> 2s) ≥ 50%<br/>(janela de 10 chamadas)
-    ABERTO --> MEIO_ABERTO: após 30s<br/>(waitDurationInOpenState)
+    ABERTO --> MEIO_ABERTO: após 30s<br/>(wait duration)
     MEIO_ABERTO --> FECHADO: 3 chamadas de teste<br/>bem-sucedidas
-    MEIO_ABERTO --> ABERTO: chamada de teste falha
+    MEIO_ABERTO --> ABERTO: teste<br/>falhou
 
     FECHADO: FECHADO
     FECHADO: chamadas passam normalmente
@@ -453,5 +457,5 @@ stateDiagram-v2
 Para regenerar as imagens:
 
 ```bash
-npx @mermaid-js/mermaid-cli -i docs/arquitetura.mmd -o docs/arquitetura.svg -b white
+npx @mermaid-js/mermaid-cli -i docs/arquitetura.mmd -o docs/arquitetura.svg -t dark -b "#0d1117"
 ```

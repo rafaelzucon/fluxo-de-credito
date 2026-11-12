@@ -1,9 +1,10 @@
+%%{init: {"theme": "dark"}}%%
 flowchart TB
-    classDef ok fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
-    classDef warn fill:#FFF8E1,stroke:#FF8F00,color:#E65100
-    classDef err fill:#FFEBEE,stroke:#C62828,color:#B71C1C
-    classDef db fill:#ECEFF1,stroke:#455A64,color:#263238
-    classDef cb fill:#FFFDE7,stroke:#F9A825,stroke-width:3px,color:#5D4037
+    classDef ok fill:#0F3320,stroke:#66BB6A,color:#E8F5E9
+    classDef warn fill:#3A2E0A,stroke:#FFB300,color:#FFF8E1
+    classDef err fill:#3B1214,stroke:#EF5350,color:#FFEBEE
+    classDef db fill:#263238,stroke:#90A4AE,color:#ECEFF1
+    classDef cb fill:#3A3410,stroke:#FDD835,stroke-width:3px,color:#FFFDE7
 
     subgraph K["Kafka: circuit breaker + retry + dead letter topic"]
         direction TB

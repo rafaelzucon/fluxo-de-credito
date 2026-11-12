@@ -1,10 +1,11 @@
+%%{init: {"theme": "dark"}}%%
 stateDiagram-v2
     direction LR
     [*] --> FECHADO
     FECHADO --> ABERTO: taxa de falha ≥ 50% ou<br/>chamadas lentas (> 2s) ≥ 50%<br/>(janela de 10 chamadas)
-    ABERTO --> MEIO_ABERTO: após 30s<br/>(waitDurationInOpenState)
+    ABERTO --> MEIO_ABERTO: após 30s<br/>(wait duration)
     MEIO_ABERTO --> FECHADO: 3 chamadas de teste<br/>bem-sucedidas
-    MEIO_ABERTO --> ABERTO: chamada de teste falha
+    MEIO_ABERTO --> ABERTO: teste<br/>falhou
 
     FECHADO: FECHADO
     FECHADO: chamadas passam normalmente
