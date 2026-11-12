@@ -47,6 +47,8 @@ public class MotorCreditoListener {
             backOff = @BackOff(delayString = "${app.kafka.intervalo-retry:5s}"),
             sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC,
             retryTopicSuffix = "-retry",
+            // Quem subir primeiro cria o tópico principal; todos usam o mesmo número de partições.
+            numPartitions = "3",
             dltTopicSuffix = "-dlt")
     @KafkaListener(id = "motor-credito", topics = "${app.kafka.topico-solicitacao-criada}")
     public void consumir(String payload) throws Exception {

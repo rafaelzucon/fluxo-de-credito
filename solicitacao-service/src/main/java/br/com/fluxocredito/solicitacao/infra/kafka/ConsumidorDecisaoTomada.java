@@ -41,6 +41,8 @@ public class ConsumidorDecisaoTomada {
             backOff = @BackOff(delayString = "${app.kafka.intervalo-retry:5s}"),
             sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC,
             retryTopicSuffix = "-retry",
+            // Quem subir primeiro cria o tópico principal; todos usam o mesmo número de partições.
+            numPartitions = "3",
             dltTopicSuffix = "-dlt",
             exclude = MensagemInvalidaException.class)
     @KafkaListener(id = LISTENER_ID, idIsGroup = false, groupId = "solicitacao-service",

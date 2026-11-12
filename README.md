@@ -29,7 +29,7 @@ Resiliência: **chaves de idempotência** (constraint `UNIQUE`), **retry/DLT** n
 - **CB + idempotência:** a inserção da chave e a chamada externa ficam na mesma transação. Se a chamada falhar ou o CB estiver aberto, o rollback libera a chave, e a próxima tentativa não é descartada como duplicata.
 - **Visibility timeout:** deve ser maior ou igual a `waitDurationInOpenState`, para a mensagem não reaparecer enquanto o CB ainda está aberto.
 
-Configuração sugerida (Resilience4j):
+Configuração (Resilience4j; a versão efetiva está em `*/src/main/resources/application.yml`):
 
 ```yaml
 resilience4j.circuitbreaker:
@@ -49,6 +49,91 @@ resilience4j.circuitbreaker:
     email-provider: { baseConfig: default }
     push-provider:  { baseConfig: default }
 ```
+
+## Código e execução
+
+### Módulos
+
+| Módulo | Porta | Conteúdo |
+|---|---|---|
+| `solicitacao-service` | 8080 | API REST (`POST/GET /api/v1/solicitacoes`), JPA + Flyway (Oracle), producer `SolicitacaoCriada`, consumer `DecisaoTomada` (`@RetryableTopic`: `-retry` → `-dlt`), publicação SNS, idempotência e CBs `kafka-producer`/`sns-publisher`. |
+| `notificacao-service` | 8081 | Listeners SQS `fila-email`/`fila-push`, envio SMTP e push (REST), idempotência por canal e CBs `email-provider`/`push-provider`. |
+| `motor-credito-simulador` | 8082 | Simula o motor de crédito, que é um sistema externo à solução. |
+
+**Regras do simulador:** `clienteId` iniciado por `restrito` → NEGADA ("Restrição cadastral"). Para os demais clientes, o score e o limite são derivados do `clienteId` de forma determinística: score < 500 → NEGADA; valor acima do limite → NEGADA; caso contrário, APROVADA.
+
+**Versões:** Java 21, Spring Boot 4.1.2 (Spring Framework 7, Spring Kafka 4.1, Hibernate 7.4, Jackson 3), Spring Cloud AWS 4.2.1 (AWS SDK v2), Resilience4j 2.4.0, Flyway 12, Oracle JDBC 23 (`ojdbc17`), Oracle Database 23ai Free, Apache Kafka 4.x (KRaft), LocalStack 4.14 (SNS/SQS), Mailpit (SMTP) e WireMock (provedor de push).
+
+### Executar com Docker
+
+Pré-requisitos: Linux com Docker Engine e Docker Compose v2, cerca de **6 GB de RAM** e **8 GB de disco livres**. Os datafiles do Oracle ocupam cerca de 3,2 GB.
+
+```bash
+docker compose up -d --build        # compila, roda os testes unitários e sobe tudo
+docker compose ps                   # aguarde todos ficarem "healthy" (o Oracle leva 1–2 min na 1ª vez)
+```
+
+Para pular os testes no build: `SKIP_TESTS=true docker compose up -d --build`.
+Se a sua rede usa proxy com inspeção TLS, copie os certificados da CA (`*.crt`) para `docker/certs/` antes do build.
+
+| Endereço | O que é |
+|---|---|
+| http://localhost:8080/api/v1/solicitacoes | API de solicitações |
+| http://localhost:8025 | Mailpit: e-mails enviados |
+| http://localhost:8089/__admin/requests | WireMock: notificações push recebidas |
+| http://localhost:8080/actuator/circuitbreakers (e 8081) | Estado dos circuit breakers |
+| `localhost:1521/FREEPDB1` | Oracle (usuários `solicitacao`/`solicitacao` e `notificacao`/`notificacao`) |
+| `localhost:29092` | Kafka |
+| `localhost:4566` | LocalStack (SNS/SQS) |
+
+```bash
+# 1. Solicitar (retorna 202 + mensagem padrão)
+curl -i -X POST localhost:8080/api/v1/solicitacoes -H 'Content-Type: application/json' -d '{
+  "clienteId": "cliente-123", "produtoCodigo": "CARTAO-GOLD", "valorSolicitado": 1000.00,
+  "email": "maria@exemplo.com", "tokenDispositivo": "token-maria"}'
+
+# 2. Consultar o status (PENDENTE → APROVADA/NEGADA)
+curl localhost:8080/api/v1/solicitacoes/<solicitacaoId>
+
+# 3. Ver a resposta ao cliente: e-mail em http://localhost:8025 e push no WireMock
+curl localhost:8089/__admin/requests
+```
+
+**Simular falhas:**
+
+```bash
+# DLQ: com o provedor de push fora, a mensagem volta após o visibility timeout (30 s)
+# e, no 3º recebimento, vai para fila-push-dlq. O e-mail é enviado normalmente.
+docker compose stop push-provider
+#   ...faça uma solicitação e aguarde cerca de 90 s...
+docker compose exec localstack awslocal sqs get-queue-attributes \
+  --queue-url http://localhost:4566/000000000000/fila-push-dlq --attribute-names ApproximateNumberOfMessages
+
+# Idempotência: republicar a mesma decisão no SNS não reenvia o e-mail ("mensagem duplicada ignorada")
+docker compose start push-provider
+docker compose exec localstack awslocal sns publish \
+  --topic-arn arn:aws:sns:us-east-1:000000000000:decisao-credito --message '<corpo da mensagem da DLQ>'
+docker compose logs notificacao-service | grep duplicada
+
+# Circuit breaker: com 5+ chamadas e 50% de falhas, o CB abre e o listener é parado
+curl localhost:8081/actuator/circuitbreakers
+```
+
+Para parar: `docker compose down` (ou `docker compose down -v` para apagar também o banco).
+
+### Testes unitários
+
+```bash
+mvn test                       # requer JDK 21+ e Maven 3.9+
+# ou, sem Maven local:
+docker run --rm -v "$PWD":/ws -w /ws maven:3.10-eclipse-temurin-21 mvn -B test
+```
+
+### Observações
+
+- **LocalStack 4.14:** as versões mais novas exigem `LOCALSTACK_AUTH_TOKEN`; a 4.14 é a última que roda sem conta.
+- **Contagem de recebimentos no SQS:** cada recebimento incrementa `ApproximateReceiveCount`, mesmo com o CB aberto. Para não gastar as 3 tentativas durante uma indisponibilidade, o listener é parado quando o CB abre e a visibilidade da mensagem em processamento é estendida para 30 s (≥ `waitDurationInOpenState`). Ainda assim, uma indisponibilidade muito longa com reaberturas sucessivas do CB pode levar mensagens à DLQ. Por isso as DLQs devem ser monitoradas e reprocessadas (redrive).
+- **Tópicos Kafka:** criados com 3 partições por quem subir primeiro, seja o `@RetryableTopic` ou um `NewTopic`. A chave da mensagem é o `solicitacaoId`, o que garante a ordem por solicitação.
 
 ## 1. Visão geral da arquitetura
 
@@ -358,6 +443,10 @@ stateDiagram-v2
 
 ## Arquivos
 
+- `solicitacao-service/`, `notificacao-service/`, `motor-credito-simulador/`: código e testes
+- `Dockerfile`: build multi-stage (Maven → JRE 21), um target por serviço
+- `docker-compose.yml`: solução completa (Oracle, Kafka, LocalStack, Mailpit, WireMock e os 3 serviços)
+- `docker/`: init do Oracle (usuários), do LocalStack (tópico, filas, DLQs e assinaturas) e stub do WireMock
 - `docs/*.mmd`: fontes Mermaid
 - `docs/*.svg` / `docs/*.png`: imagens renderizadas
 
